@@ -556,7 +556,11 @@
   mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
 
   // Change this if your backend runs somewhere other than localhost:8000
-  const API_BASE = "http://localhost:8000";
+  // Local dev:  http://localhost:8000
+  // Production: your Render backend URL (set this before deploying)
+  const API_BASE = window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : "https://codesheet-backend.onrender.com";  // ← update this after Render deploy
 
   const dropZone = document.getElementById('dropZone');
   const fileInput = document.getElementById('fileInput');
