@@ -16,7 +16,7 @@ PROVIDER = os.environ.get("PROVIDER", "groq").lower()
 
 # ── Groq ─────────────────────────────────────────────────────────────────────
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL    = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_MODEL    = os.environ.get("GROQ_MODEL", "groq/compound-mini")
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -35,22 +35,29 @@ _cached_iam_token: str | None = None
 # ── Provider implementations ──────────────────────────────────────────────────
 
 def call_groq(prompt: str) -> str:
-    resp = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": GROQ_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "temperature": 0.2,
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    import time
+    for attempt in range(3):
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": GROQ_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024,
+                "temperature": 0.2,
+            },
+            timeout=60,
+        )
+        if resp.status_code == 429:
+            wait = 10 * (attempt + 1)  # 10s, 20s, 30s
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    resp.raise_for_status()  # raise after all retries exhausted
 
 
 def call_gemini(prompt: str) -> str:
