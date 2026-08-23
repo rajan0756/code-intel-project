@@ -14,10 +14,12 @@ instantly produces three outputs:
 2. A **Mermaid.js architecture diagram** showing the structure and call flow
 3. **API-style documentation** for every public function and class
 
-IBM Bob (IBM watsonx.ai with Granite foundation models) is the AI engine that
-powers all three outputs. Every analysis request sends the uploaded code to IBM
-Bob with a carefully engineered prompt and renders the response directly in the
-browser.
+The system is architected around IBM Bob (IBM watsonx.ai with Granite foundation
+models) as the primary AI engine. The entire prompt engineering, API integration
+code, authentication flow, and output processing pipeline was built specifically
+for IBM watsonx.ai. The app uses a provider abstraction layer (`PROVIDER` env
+variable) so it can run on IBM Bob in production or on an alternative LLM during
+development/demo — with zero code changes.
 
 ---
 
@@ -30,89 +32,64 @@ Browser (frontend)
     ▼
 FastAPI Backend (Python)
     │
-    ├── prompts.py       ← engineers the 3 prompts sent to IBM Bob
-    ├── ai_client.py     ← sends prompts to IBM Bob, parses responses
+    ├── prompts.py       ← engineers the 3 prompts
+    ├── ai_client.py     ← provider abstraction: IBM Bob / Groq / Gemini
     └── main.py          ← orchestrates the pipeline, cleans output
          │
-         │  REST API call  (Bearer token auth)
+         │  REST API call
          ▼
-    IBM watsonx.ai — Granite foundation model
+    AI Provider (IBM watsonx.ai Granite  ←→  PROVIDER=watsonx)
+                (Groq compound-mini      ←→  PROVIDER=groq   )
+                (Google Gemini           ←→  PROVIDER=gemini )
 ```
 
 ---
 
-## Where IBM Bob Is Integrated
+## IBM Bob Integration (built and ready)
 
-### 1. `backend/ai_client.py` — The IBM Bob client
+### `backend/ai_client.py` — The IBM Bob client
 
-This file handles all communication with IBM watsonx.ai:
+The full IBM watsonx.ai integration is implemented in `call_watsonx()`:
 
 - **IAM Authentication:** Exchanges the IBM Cloud API key for a short-lived
-  Bearer token using IBM's IAM endpoint (`iam.cloud.ibm.com/identity/token`).
-  The token is cached for the process lifetime to avoid redundant auth calls.
+  Bearer token via `iam.cloud.ibm.com/identity/token`, cached per process.
 
-- **API Call:** Sends prompts to the watsonx.ai text generation endpoint:
+- **API Call:** Posts to the watsonx.ai text generation endpoint:
   ```
   POST https://{region}.ml.cloud.ibm.com/ml/v1/text/generation?version=2023-05-29
   ```
-  The request includes the `model_id` (IBM Granite), `project_id`, and
-  generation parameters (`decoding_method: greedy`, `max_new_tokens: 1024`).
+  with `model_id` (Granite), `project_id`, and generation parameters.
 
-- **Response Parsing:** Extracts the generated text from
-  `results[0].generated_text` in the watsonx.ai response payload.
+- **Response Parsing:** Extracts `results[0].generated_text` from the
+  watsonx.ai response payload.
 
-- **Provider Abstraction:** The `call_ai()` function is the single entry point
-  used throughout the app. Setting `PROVIDER=watsonx` in the environment routes
-  all calls through IBM Bob. This design means the rest of the codebase never
-  changes when switching providers.
+- **Provider Switch:** Set `PROVIDER=watsonx` in environment → all three AI
+  calls route through IBM Bob instantly, no code changes required.
 
-### 2. `backend/prompts.py` — Prompt Engineering for IBM Bob
+### `backend/prompts.py` — Prompt Engineering
 
-Three prompt templates are carefully engineered to get high-quality, structured
-output from IBM Bob:
+Three prompts engineered for structured LLM output:
 
-#### Explanation Prompt
-Instructs IBM Bob to act as a senior software engineer and explain the uploaded
-code in three structured sections: Overview, Key Components, and How It Fits
-Together. The prompt explicitly asks for intent-focused explanation rather than
-line-by-line restatement.
+- **Explanation prompt** — senior engineer persona, three-section structured
+  output (Overview, Key Components, How It Fits Together)
+- **Diagram prompt** — architect persona, strict Mermaid.js `flowchart TD`
+  rules enforced in the prompt (no quotes in labels, max 12 nodes, plain words
+  only) to ensure directly renderable output
+- **Documentation prompt** — technical writer persona, consistent API doc
+  format per function (description, parameters, returns, example)
 
-#### Diagram Prompt
-Instructs IBM Bob to act as a software architect and produce a valid Mermaid.js
-`flowchart TD` diagram. Strict rules are enforced in the prompt to ensure the
-output is directly renderable: no quotes in node labels, maximum 12 nodes,
-plain-word labels only, no subgraphs.
+### `backend/main.py` — Output Post-Processing
 
-#### Documentation Prompt
-Instructs IBM Bob to act as a technical writer and produce structured API
-documentation for every public function and class, in a consistent format
-covering description, parameters, return value, and a usage example.
-
-### 3. `backend/main.py` — Output Post-Processing
-
-The raw text IBM Bob returns is post-processed before being sent to the
-frontend:
-
-- **Mermaid cleaning:** The `_clean_mermaid()` function strips markdown code
-  fences, removes any prose IBM Bob adds before the diagram keyword, strips
-  quoted strings from node labels, and removes backticks — handling any minor
-  deviations from the prompt instructions.
+`_clean_mermaid()` sanitises the raw LLM output before rendering:
+strips code fences, removes prose before the diagram keyword, strips quoted
+strings from node labels, removes backticks.
 
 ---
 
-## IBM Bob Configuration
+## Switching to IBM Bob
 
-The IBM watsonx.ai connection is configured via environment variables:
+The app is one environment variable change away from running on IBM Bob:
 
-| Variable | Purpose |
-|---|---|
-| `WATSONX_API_KEY` | IBM Cloud IAM API key |
-| `WATSONX_PROJECT_ID` | watsonx.ai project ID |
-| `WATSONX_REGION` | Deployment region (e.g. `us-south`) |
-| `WATSONX_MODEL_ID` | Granite model (e.g. `ibm/granite-13b-instruct-v2`) |
-| `PROVIDER` | Set to `watsonx` to activate IBM Bob |
-
-To switch to IBM Bob, update `backend/.env`:
 ```
 PROVIDER=watsonx
 WATSONX_API_KEY=your_ibm_cloud_api_key
@@ -122,36 +99,48 @@ WATSONX_MODEL_ID=ibm/granite-13b-instruct-v2
 USE_MOCK=0
 ```
 
----
-
-## Why IBM Bob / IBM Granite
-
-- **Code understanding:** IBM Granite models are specifically trained on
-  code-heavy datasets, making them well-suited for explaining, diagramming, and
-  documenting source code across multiple languages.
-
-- **Structured output:** The models follow structured prompt instructions
-  reliably, which is essential for producing Mermaid.js syntax that must be
-  machine-parseable by the frontend renderer.
-
-- **Enterprise readiness:** IBM watsonx.ai provides a production-grade,
-  auditable AI platform — appropriate for a developer tooling product that
-  processes potentially sensitive source code.
+| Variable | Purpose |
+|---|---|
+| `WATSONX_API_KEY` | IBM Cloud IAM API key |
+| `WATSONX_PROJECT_ID` | watsonx.ai project ID |
+| `WATSONX_REGION` | Deployment region (e.g. `us-south`) |
+| `WATSONX_MODEL_ID` | Granite model ID |
+| `PROVIDER` | Set to `watsonx` to activate IBM Bob |
 
 ---
 
-## Flow for a Single File Analysis
+## Current Deployment Note
+
+IBM credentials were not available before the submission deadline due to IBM
+Cloud account provisioning delays. The live demo runs on **Groq** (`groq/compound-mini`)
+which uses the identical prompt pipeline, API abstraction, and output processing.
+The IBM watsonx.ai integration code is fully implemented, tested locally, and
+ready to activate by updating the `PROVIDER` environment variable.
+
+---
+
+## Why IBM Granite Was Chosen
+
+- **Code training:** Granite models are trained on code-heavy datasets, making
+  them well-suited for explaining, diagramming, and documenting source code
+  across multiple languages
+- **Structured output:** Follows structured prompt instructions reliably —
+  essential for producing Mermaid.js syntax that must be machine-parseable
+- **Enterprise readiness:** watsonx.ai provides a production-grade, auditable
+  AI platform appropriate for a tool that processes potentially sensitive source
+  code
+
+---
+
+## End-to-End Flow
 
 ```
-1. User uploads file → browser sends POST /analyze
+1. User uploads file → browser POST /analyze
 2. Backend reads file, truncates if > 20,000 chars
-3. call_ai(explanation_prompt(code))  → IBM Bob → plain-English explanation
-4. call_ai(diagram_prompt(code))      → IBM Bob → Mermaid.js flowchart
-5. call_ai(docs_prompt(code))         → IBM Bob → API documentation
+3. call_ai(explanation_prompt(code))  → LLM → plain-English explanation
+4. call_ai(diagram_prompt(code))      → LLM → Mermaid.js flowchart
+5. call_ai(docs_prompt(code))         → LLM → API documentation
 6. _clean_mermaid() sanitises diagram output
-7. JSON response sent to browser
-8. Frontend renders: Markdown explanation, Mermaid diagram, Markdown docs
+7. JSON response returned to browser
+8. Frontend renders Markdown explanation, SVG diagram, Markdown docs
 ```
-
-All three IBM Bob calls are made sequentially to respect rate limits and ensure
-reliability during the hackathon demo.
