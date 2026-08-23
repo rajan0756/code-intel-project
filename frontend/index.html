@@ -426,7 +426,7 @@
       <div class="panel-content" id="explanationContent"></div>
     </div>
     <div class="tab-panel" id="panel-diagram">
-      <div id="diagram-render"><div class="mermaid" id="mermaidCode"></div></div>
+      <div id="diagram-render"></div>
     </div>
     <div class="tab-panel" id="panel-docs">
       <button class="copy-btn" id="copyBtn">Copy Markdown</button>
@@ -648,17 +648,16 @@
     rawDocs = data.documentation;
     document.getElementById('docsContent').innerHTML = marked.parse(data.documentation);
 
-    const mermaidEl = document.getElementById('mermaidCode');
-    mermaidEl.removeAttribute('data-processed');
-    mermaidEl.textContent = data.mermaid_diagram;
-
     results.style.display = 'block';
 
+    const diagramRender = document.getElementById('diagram-render');
     try {
-      await mermaid.run({ nodes: [mermaidEl] });
+      // mermaid.render() generates fresh SVG every time — reliable for re-use
+      const { svg } = await mermaid.render('mermaid-svg', data.mermaid_diagram);
+      diagramRender.innerHTML = svg;
     } catch (e) {
-      // Rendering failed — show the raw Mermaid source so the user can still read/copy it
-      document.getElementById('diagram-render').innerHTML =
+      // Rendering failed — show the raw Mermaid source so user can still read/copy it
+      diagramRender.innerHTML =
         `<div style="margin-bottom:8px;">
            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#d9705f;">
              ⚠ Diagram could not render — showing raw Mermaid source
