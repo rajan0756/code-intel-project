@@ -16,7 +16,7 @@ PROVIDER = os.environ.get("PROVIDER", "groq").lower()
 
 # ── Groq ─────────────────────────────────────────────────────────────────────
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL    = os.environ.get("GROQ_MODEL", "groq/compound-mini")
+GROQ_MODEL    = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
